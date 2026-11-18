@@ -1,0 +1,35 @@
+# Cargo
+/target
+**/*.rs.bk
+
+# The test benches in tools/, built with cl
+/tools/*.exe
+/tools/*.obj
+/tools/*.pdb
+/tools/*.ilk
+
+# Release files made by the release workflow
+/dist
+
+# What an update leaves beside the exe when it runs from this folder
+*.exe.old
+*.exe.new
+
+# Debugging and profiling
+*.pdb
+*.dmp
+
+# Editors and IDEs
+/.vs
+/.vscode
+/.idea
+*.swp
+*~
+
+# Local settings of coding agents
+/.claude/settings.local.json
+
+# Windows
+Thumbs.db
+desktop.ini
+$RECYCLE.BIN/

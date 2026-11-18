@@ -1,0 +1,56 @@
+# A tag vX.Y.Z builds krosshair.exe and publishes it as a GitHub release, with its SHA-256 in
+# krosshair.exe.sha256. The app's update check looks for exactly these two files (src/update.rs).
+#
+#   1. set `version = "X.Y.Z"` in Cargo.toml and commit
+#   2. git tag vX.Y.Z && git push origin vX.Y.Z
+name: Release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: ilammy/msvc-dev-cmd@v1
+
+      # The app compares its own version (from Cargo.toml) with the tag: they must agree, or
+      # every copy would keep offering the same update.
+      - name: Tag matches Cargo.toml
+        shell: pwsh
+        run: |
+          $version = (cargo metadata --no-deps --format-version 1 | ConvertFrom-Json).packages[0].version
+          if ("v$version" -ne "${{ github.ref_name }}") {
+            throw "Tag ${{ github.ref_name }} doesn't match version $version in Cargo.toml"
+          }
+
+      - name: Test
+        run: cargo test --release
+
+      - name: Build
+        run: cargo build --release
+
+      - name: Hash
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory dist | Out-Null
+          Copy-Item target\release\krosshair.exe dist\krosshair.exe
+          $hash = (Get-FileHash dist\krosshair.exe -Algorithm SHA256).Hash.ToLower()
+          Set-Content dist\krosshair.exe.sha256 "$hash  krosshair.exe" -NoNewline
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/krosshair.exe
+            dist/krosshair.exe.sha256
+          generate_release_notes: true
