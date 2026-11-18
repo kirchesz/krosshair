@@ -1,6 +1,6 @@
 [package]
 name = "krosshair"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 description = "Crosshair overlay drawn through the RivaTuner Statistics Server OSD"
 repository = "https://github.com/kirchesz/krosshair"
