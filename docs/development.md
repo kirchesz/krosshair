@@ -24,6 +24,7 @@ Common commands:
 | `cargo test` | Checks the rasterizer, the atlas layout, the configuration and the update check |
 | `cargo clippy --all-targets` | Lints |
 | `.\tools\make-icon.ps1` | Draws the app icon again after the logo changes |
+| `.\tools\make-preview.ps1` | Draws the README preview, `docs/images/preview.png`, from the window screenshot `docs/images/gallery.png` (rounded corners, shadow, generated wallpaper) |
 | `.\target\release\krosshair.exe --screen settings` | Opens a screen right away |
 
 Only one copy runs at a time, so close the real one before starting a test build. Testing against

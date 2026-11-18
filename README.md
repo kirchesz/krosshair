@@ -20,7 +20,7 @@
 	</a>
 </p>
 
-<img src="docs/images/gallery.png" alt="krosshair app preview">
+<img src="docs/images/preview.png" alt="krosshair app preview">
 
 ## Features
 
