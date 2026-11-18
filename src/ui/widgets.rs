@@ -187,13 +187,14 @@ pub fn bitmap_view(bmp: Arc<Bitmap>, scale: f32, opacity: f32) -> impl IntoEleme
 /// A gallery crosshair fitted into a `side` x `side` box: enlarged by a whole factor up to
 /// `max_scale` when it is small, scaled down when it is bigger than the box. Animations play.
 pub fn thumb(view: &Krosshair, item: &GalleryItem, side: f32, max_scale: f32, opacity: f32) -> gpui::AnyElement {
-    thumb_turned(view, item, 0, side, max_scale, opacity)
+    thumb_layer(view, item, (0, crate::model::WHITE), side, max_scale, opacity)
 }
 
-/// [`thumb`] turned `rotation` degrees clockwise around its middle, the way a layer is.
-pub fn thumb_turned(view: &Krosshair, item: &GalleryItem, rotation: i32, side: f32, max_scale: f32, opacity: f32) -> gpui::AnyElement {
-    if rotation.rem_euclid(360) != 0 {
-        let bmp = view.turned(&view.frame_of(item), rotation);
+/// [`thumb`] as a layer shows it: tinted by its own mask and turned `rotation` degrees clockwise
+/// around its middle.
+pub fn thumb_layer(view: &Krosshair, item: &GalleryItem, (rotation, mask): (i32, u32), side: f32, max_scale: f32, opacity: f32) -> gpui::AnyElement {
+    if rotation.rem_euclid(360) != 0 || mask & 0xffffff != crate::model::WHITE {
+        let bmp = view.turned(&view.frame_of(item), rotation, mask);
         let largest = bmp.w.max(bmp.h).max(1) as f32;
         let scale = if largest > side { side / largest } else { (side / largest).floor().clamp(1., max_scale) };
         return bitmap_view(bmp, scale, opacity).into_any_element();

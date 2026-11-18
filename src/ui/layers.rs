@@ -3,6 +3,7 @@
 use super::theme::*;
 use super::widgets::*;
 use super::{heading, Krosshair, LayerDraft, Screen, SCREEN_TOP};
+use crate::model::LayerRef;
 use crate::raster::Bitmap;
 use gpui::{div, prelude::*, px, Context, FontWeight, Pixels, Point, Window};
 use std::sync::Arc;
@@ -43,8 +44,12 @@ impl Krosshair {
     pub(super) fn open_layer(&mut self, index: Option<usize>, cx: &mut Context<Self>) {
         self.rescan();
         self.draft = match index.and_then(|i| self.cfg.profile().layers.get(i).map(|l| (i, l))) {
-            Some((i, l)) => LayerDraft { index: Some(i), file: Some(l.file.clone()), anchor: l.anchor, ox: l.ox, oy: l.oy, on: l.on, rotation: l.rotation },
-            None => LayerDraft { index: None, file: self.gallery.first().map(|g| g.file.clone()), anchor: 4, ox: 0, oy: 0, on: true, rotation: 0 },
+            Some((i, l)) => LayerDraft::of(Some(i), l),
+            None => {
+                let mut draft = LayerDraft::of(None, &LayerRef::new(String::new(), 4));
+                draft.file = self.gallery.first().map(|g| g.file.clone());
+                draft
+            }
         };
         self.go(Screen::LayerEdit, cx);
     }
@@ -72,7 +77,7 @@ impl Krosshair {
             let item = self.item(&layer.file);
             let bmp = item.map(|g| g.bmp.clone());
             let preview = match item {
-                Some(item) => thumb_turned(self, item, layer.rotation, 132., 4., if layer.on { 1. } else { 0.25 }),
+                Some(item) => thumb_layer(self, item, (layer.rotation, layer.mask), 132., 4., if layer.on { 1. } else { 0.25 }),
                 None => div()
                     .font_family(mono())
                     .text_size(px(11.))

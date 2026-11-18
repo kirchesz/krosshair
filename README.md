@@ -27,8 +27,8 @@
 - **GIFs support.** GIF crosshairs play in game with the frame timing of the file.
 - **Built-in editor.** Crosses, T shapes, circles, dots or a 21x21 pixel grid, with color,
   opacity, rotation and outline.
-- **Layers and profiles.** Nine screen anchors, pixel offsets and a rotation per layer; whole sets
-  kept as profiles.
+- **Layers and profiles.** Nine screen anchors, pixel offsets, and a rotation, scale and color of
+  their own for every layer; whole sets kept as profiles.
 - **Safe.** Draws through proven overlay methods such as RTSS.
 - **Highly customizable.** Use any PNG or GIF of your own, then scale it, turn it and tint it to
   fit any game.

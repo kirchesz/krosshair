@@ -53,6 +53,41 @@ pub struct LayerDraft {
     pub on: bool,
     /// Degrees clockwise around the layer's own middle.
     pub rotation: i32,
+    /// The layer's own scale, on top of the crosshair's.
+    pub scale: f32,
+    /// The layer's own color mask, 0xRRGGBB.
+    pub mask: u32,
+}
+
+impl LayerDraft {
+    /// A draft of `layer`, at position `index` in the profile (`None` for a new layer).
+    pub fn of(index: Option<usize>, layer: &LayerRef) -> Self {
+        Self {
+            index,
+            file: Some(layer.file.clone()).filter(|f| !f.is_empty()),
+            anchor: layer.anchor,
+            ox: layer.ox,
+            oy: layer.oy,
+            on: layer.on,
+            rotation: layer.rotation,
+            scale: layer.scale,
+            mask: layer.mask,
+        }
+    }
+
+    /// The layer this draft makes, showing `file`.
+    pub fn layer(&self, file: String) -> LayerRef {
+        LayerRef {
+            file,
+            anchor: self.anchor,
+            ox: self.ox,
+            oy: self.oy,
+            on: self.on,
+            rotation: self.rotation,
+            scale: self.scale,
+            mask: self.mask,
+        }
+    }
 }
 
 /// The crosshair being drawn in the editor.
@@ -126,8 +161,9 @@ pub struct Krosshair {
     anim_wake: Option<Task<()>>,
     /// What the overlay had to leave out (a GIF too big to animate), shown in the header.
     note: RefCell<Option<SharedString>>,
-    /// Turned previews of layers, by picture and angle. Emptied when the gallery is read again.
-    turned: RefCell<HashMap<(usize, i32), Arc<Bitmap>>>,
+    /// Turned and tinted previews of layers, by picture, angle and mask. Emptied when the gallery
+    /// is read again.
+    turned: RefCell<HashMap<(usize, i32, u32), Arc<Bitmap>>>,
 }
 
 /// One element's hover transition: where it is heading, since when, and the amount it started at.
@@ -191,7 +227,7 @@ impl Krosshair {
             overlay,
             status: Status::Off,
             screen: Screen::Layers,
-            draft: LayerDraft { index: None, file: None, anchor: 4, ox: 0, oy: 0, on: true, rotation: 0 },
+            draft: LayerDraft::of(None, &LayerRef::new(String::new(), 4)),
             ed: EditorState::new(),
             profile_menu: false,
             open_select: None,
@@ -278,9 +314,8 @@ impl Krosshair {
         if self.screen == Screen::LayerEdit
             && let Some(file) = &self.draft.file
         {
-            let d = &self.draft;
-            let layer = LayerRef { file: file.clone(), anchor: d.anchor, ox: d.ox, oy: d.oy, on: d.on, rotation: d.rotation };
-            match d.index {
+            let layer = self.draft.layer(file.clone());
+            match self.draft.index {
                 Some(i) if i < layers.len() => layers[i] = layer,
                 _ => layers.push(layer),
             }
@@ -311,14 +346,15 @@ impl Krosshair {
         self.turned.borrow_mut().clear();
     }
 
-    /// A picture turned `rotation` degrees clockwise around its middle, for previews.
-    pub fn turned(&self, bmp: &Arc<Bitmap>, rotation: i32) -> Arc<Bitmap> {
-        let key = (Arc::as_ptr(bmp) as usize, rotation.rem_euclid(360));
+    /// A picture tinted by `mask` and turned `rotation` degrees clockwise around its middle, the
+    /// way a layer is, for previews.
+    pub fn turned(&self, bmp: &Arc<Bitmap>, rotation: i32, mask: u32) -> Arc<Bitmap> {
+        let key = (Arc::as_ptr(bmp) as usize, rotation.rem_euclid(360), mask & 0xffffff);
         if let Some(hit) = self.turned.borrow().get(&key) {
             return hit.clone();
         }
         let middle = (bmp.w as f32 / 2., bmp.h as f32 / 2.);
-        let out = Arc::new(bmp.rotated((0., 0.), middle, key.1).0);
+        let out = Arc::new(bmp.tinted(key.2).rotated((0., 0.), middle, key.1).0);
         let mut cache = self.turned.borrow_mut();
         // Dragging the angle makes a new entry per degree: keep it from growing without end.
         if cache.len() > 512 {
@@ -996,6 +1032,8 @@ impl Render for Krosshair {
 pub enum Knob {
     Scale,
     Rotation,
+    /// The scale of the layer being edited, on top of the crosshair's.
+    LayerScale,
     /// The rotation of the layer being edited.
     LayerRotation,
     /// The rotation of the selected shape in the editor.
@@ -1100,6 +1138,7 @@ impl Knob {
     fn id(self) -> &'static str {
         match self {
             Knob::Scale => "scale",
+            Knob::LayerScale => "layer-scale",
             Knob::Rotation => "rotation",
             Knob::LayerRotation => "layer-rotation",
             Knob::EditorRotation => "editor-rotation",
@@ -1125,14 +1164,14 @@ impl Knob {
     /// One step of the plus and minus buttons, and how many steps Shift takes.
     fn step(self) -> f32 {
         match self {
-            Knob::Scale => 1. / SCALE_STEPS_PER_UNIT,
+            Knob::Scale | Knob::LayerScale => 1. / SCALE_STEPS_PER_UNIT,
             _ => 1.,
         }
     }
 
     fn big_step(self) -> f32 {
         match self {
-            Knob::Scale => 10.,
+            Knob::Scale | Knob::LayerScale => 10.,
             Knob::Size(_) => 5.,
             Knob::OffsetX | Knob::OffsetY => 10.,
             _ => 15.,
@@ -1143,6 +1182,7 @@ impl Knob {
         let shape = || &view.ed.layers[view.ed.sel.min(view.ed.layers.len() - 1)];
         match self {
             Knob::Scale => clean_scale(view.cfg.scale),
+            Knob::LayerScale => clean_scale(view.draft.scale),
             Knob::Rotation => clean_rotation(view.cfg.rotation) as f32,
             Knob::LayerRotation => clean_rotation(view.draft.rotation) as f32,
             Knob::EditorRotation => clean_rotation(shape().rotation) as f32,
@@ -1156,6 +1196,7 @@ impl Knob {
         let sel = view.ed.sel.min(view.ed.layers.len() - 1);
         match self {
             Knob::Scale => view.cfg.scale = clean_scale(value),
+            Knob::LayerScale => view.draft.scale = clean_scale(value),
             Knob::Rotation => view.cfg.rotation = clean_rotation(value.round() as i32),
             Knob::LayerRotation => view.draft.rotation = clean_rotation(value.round() as i32),
             Knob::EditorRotation => view.ed.layers[sel].rotation = clean_rotation(value.round() as i32),
@@ -1167,14 +1208,14 @@ impl Knob {
 
     /// The hint opens on the left where there is no room on the right (the side panels).
     fn hint_on_left(self) -> bool {
-        matches!(self, Knob::LayerRotation | Knob::EditorRotation | Knob::Size(_) | Knob::OffsetX | Knob::OffsetY)
+        matches!(self, Knob::LayerScale | Knob::LayerRotation | Knob::EditorRotation | Knob::Size(_) | Knob::OffsetX | Knob::OffsetY)
     }
 
     /// The value after dragging `dx` pixels from `from`.
     fn dragged(self, from: f32, dx: f32) -> f32 {
         match self {
             // 0.05 per 3 px: 1x to 2x is 60 px.
-            Knob::Scale => clean_scale(from + (dx / 3.).round() / SCALE_STEPS_PER_UNIT),
+            Knob::Scale | Knob::LayerScale => clean_scale(from + (dx / 3.).round() / SCALE_STEPS_PER_UNIT),
             // 1 degree per 2 px; past 359 it goes on from 0.
             Knob::Rotation | Knob::LayerRotation | Knob::EditorRotation => clean_rotation(from as i32 + (dx / 2.).round() as i32) as f32,
             // Stops at the ends of the range.
@@ -1185,7 +1226,7 @@ impl Knob {
 
     fn reset(self) -> f32 {
         match self {
-            Knob::Scale => 1.,
+            Knob::Scale | Knob::LayerScale => 1.,
             Knob::Rotation | Knob::LayerRotation | Knob::EditorRotation => 0.,
             Knob::Size(dim) => dim.default_value() as f32,
             Knob::OffsetX | Knob::OffsetY => 0.,
@@ -1194,7 +1235,7 @@ impl Knob {
 
     fn label(self, value: f32) -> String {
         match self {
-            Knob::Scale => scale_label(value),
+            Knob::Scale | Knob::LayerScale => scale_label(value),
             Knob::Rotation | Knob::LayerRotation | Knob::EditorRotation => format!("{}°", value as i32),
             Knob::Size(_) => format!("{} px", value as i32),
             Knob::OffsetX | Knob::OffsetY => signed_px(value as i32),
@@ -1230,7 +1271,7 @@ impl Knob {
     /// the pointer stays under it while dragging.
     fn px_per_unit(self) -> f32 {
         match self {
-            Knob::Scale => 60.,
+            Knob::Scale | Knob::LayerScale => 60.,
             Knob::Rotation | Knob::LayerRotation | Knob::EditorRotation => 2.,
             Knob::Size(_) => 8.,
             Knob::OffsetX | Knob::OffsetY => 4.,
@@ -1241,7 +1282,7 @@ impl Knob {
     /// height of the coarsest spacing it falls on.
     fn marks(self) -> &'static [(f32, f32)] {
         match self {
-            Knob::Scale => &[(0.1, 4.), (0.5, 7.), (1., 11.)],
+            Knob::Scale | Knob::LayerScale => &[(0.1, 4.), (0.5, 7.), (1., 11.)],
             Knob::Rotation | Knob::LayerRotation | Knob::EditorRotation => &[(5., 4.), (15., 7.), (45., 9.), (90., 11.)],
             Knob::Size(_) => &[(1., 4.), (5., 11.)],
             Knob::OffsetX | Knob::OffsetY => &[(1., 4.), (5., 7.), (10., 11.)],
@@ -1251,7 +1292,7 @@ impl Knob {
     /// Where the tape ends; the angle goes round and round.
     fn range(self) -> Option<(f32, f32)> {
         match self {
-            Knob::Scale => Some((SCALE_MIN, SCALE_MAX)),
+            Knob::Scale | Knob::LayerScale => Some((SCALE_MIN, SCALE_MAX)),
             Knob::Rotation | Knob::LayerRotation | Knob::EditorRotation => None,
             Knob::Size(dim) => Some((dim.range().0 as f32, dim.range().1 as f32)),
             Knob::OffsetX | Knob::OffsetY => Some((-MAX_OFFSET as f32, MAX_OFFSET as f32)),
@@ -1328,7 +1369,7 @@ struct HintParts {
 impl Knob {
     fn hint_parts(self, value: f32) -> HintParts {
         match self {
-            Knob::Scale => {
+            Knob::Scale | Knob::LayerScale => {
                 let sharp = scale_is_sharp(value);
                 // A tick every 0.5, tall on whole values.
                 let n = ((SCALE_MAX - SCALE_MIN) * 2.).round() as usize;

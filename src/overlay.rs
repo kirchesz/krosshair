@@ -311,8 +311,10 @@ fn pack(pics: &[Bitmap]) -> Option<Packed> {
 
 /// Builds the atlas and the draws for the visible layers. `picture` gives the picture of a
 /// gallery file. Every picture and offset is `scale` times bigger: whole steps repeat pixels, so
-/// they stay sharp; other values average them. Offsets are rounded to whole pixels. Then the
-/// crosshair turns `rotation` degrees clockwise (see [`rotate`]). When the animations don't fit
+/// they stay sharp; other values average them. Offsets are rounded to whole pixels. A layer's own
+/// scale multiplies its picture (not its offset) on top of that, and its own mask tints it before
+/// the global `mask` tints everything. Then the crosshair turns `rotation` degrees clockwise (see
+/// [`rotate`]). When the animations don't fit
 /// in the atlas, the biggest ones are shown as still pictures, and the note says so.
 pub fn compose(
     layers: &[LayerRef],
@@ -349,8 +351,15 @@ pub fn compose(
                 Some(a) => (a.frames.clone(), a.delays.clone()),
                 None => (vec![pic.still.clone()], Vec::new()),
             };
+            // The layer's own tint first; the global mask goes over the whole atlas at the end.
+            let frames = if layer.mask & 0xffffff == crate::model::WHITE {
+                frames
+            } else {
+                frames.iter().map(|f| Arc::new(f.tinted(layer.mask))).collect()
+            };
             let before = pics.len();
-            let prepared = prepare(frames, scale, layer).map(|p| rotate(p, layer.rotation, rotation, layer.anchor));
+            let size = crate::model::layer_scale(scale, layer.scale);
+            let prepared = prepare(frames, size, layer).map(|p| rotate(p, layer.rotation, rotation, layer.anchor));
             if let Some(c) = prepared.and_then(|p| cut(i, layer, &p, &delays, &mut pics, &mut seen)) {
                 if anim.is_some() {
                     weight.push((i, pics[before..].iter().map(|p| p.w as u64 * p.h as u64).sum()));
@@ -711,7 +720,7 @@ mod tests {
     }
 
     fn layer(anchor: u8, ox: i32, oy: i32) -> LayerRef {
-        LayerRef { file: "a.png".into(), anchor, ox, oy, on: true, rotation: 0 }
+        LayerRef { ox, oy, ..LayerRef::new("a.png".into(), anchor) }
     }
 
     fn one(layers: &[LayerRef], pic: Option<Picture>) -> Frame {
@@ -921,6 +930,35 @@ mod tests {
         assert_eq!([scale_label(1.0), scale_label(1.5), scale_label(1.05), scale_label(0.95)], ["1×", "1.5×", "1.05×", "0.95×"]);
         let a = compose(&[layer(4, 0, 0)], |_| still(solid(2, 2)), 0xffffff, 9.0, 0).frame.unwrap();
         assert_eq!(a.draws[0].rects[0].w, 8);
+    }
+
+    #[test]
+    fn layer_scale_enlarges_the_picture_but_not_the_offset() {
+        // 2 x 2 at 1 px right, its own 2x: 4 x 4, still 1 px right, x [-1, 3), y [-2, 2).
+        let l = LayerRef { scale: 2.0, ..layer(4, 1, 0) };
+        let f = compose(std::slice::from_ref(&l), |_| still(solid(2, 2)), 0xffffff, 1.0, 0).frame.unwrap();
+        assert_eq!(tags(&f, 0, 1), "<P4><L200><E=6,4,5><S=1><I=4,4,4,4,4,4>");
+        // On top of the crosshair's 1.5x: 3x in all, whole, so pixels repeat; the offset is 1.5x.
+        let f = compose(&[l], |_| still(solid(2, 2)), 0xffffff, 1.5, 0).frame.unwrap();
+        assert_eq!((f.draws[0].rects[0].w, f.draws[0].rects[0].h), (6, 6));
+        use crate::model::layer_scale;
+        assert_eq!([layer_scale(1.5, 2.0), layer_scale(0.5, 4.0), layer_scale(1.05, 1.0)], [3.0, 2.0, 1.05]);
+    }
+
+    #[test]
+    fn layer_mask_tints_only_its_layer() {
+        let red = LayerRef { mask: 0xff0000, ..layer(4, 0, 0) };
+        let f = compose(&[red, layer(0, 0, 0)], |_| still(solid(2, 2)), 0xffffff, 1.0, 0).frame.unwrap();
+        let first = &f.draws[0].rects[0];
+        let second = &f.draws[1].rects[0];
+        assert_ne!((first.x, first.y), (second.x, second.y), "a tinted copy is a picture of its own");
+        assert_eq!(f.atlas.get(first.x as i32, first.y as i32), [255, 0, 0, 255]);
+        assert_eq!(f.atlas.get(second.x as i32, second.y as i32), [255, 255, 255, 255]);
+        // The global mask goes on top of the layer's.
+        let red = LayerRef { mask: 0xff8000, ..layer(4, 0, 0) };
+        let f = compose(&[red], |_| still(solid(2, 2)), 0x80ffff, 1.0, 0).frame.unwrap();
+        let r = &f.draws[0].rects[0];
+        assert_eq!(f.atlas.get(r.x as i32, r.y as i32), [128, 128, 0, 255]);
     }
 
     #[test]

@@ -95,6 +95,28 @@ pub struct LayerRef {
     /// to it.
     #[serde(default)]
     pub rotation: i32,
+    /// How much bigger this layer's picture is drawn, on top of the crosshair scale:
+    /// [`SCALE_MIN`] to [`SCALE_MAX`] in the same steps (see [`layer_scale`]). Its offset doesn't
+    /// change with it.
+    #[serde(default = "one")]
+    pub scale: f32,
+    /// This layer's color mask, 0xRRGGBB, on top of the global one. White changes nothing.
+    #[serde(default = "white")]
+    pub mask: u32,
+}
+
+impl LayerRef {
+    /// `file` at `anchor`, on, as it is: no offset, turn, scale or tint.
+    pub fn new(file: String, anchor: u8) -> Self {
+        Self { file, anchor, ox: 0, oy: 0, on: true, rotation: 0, scale: 1.0, mask: WHITE }
+    }
+}
+
+/// A layer's own scale and the crosshair scale together, computed in whole steps so a product
+/// that is a whole number (0.5x of 2x, 1.5x of 2x) comes out exact and stays sharp.
+pub fn layer_scale(crosshair: f32, layer: f32) -> f32 {
+    let steps = |s: f32| (clean_scale(s) * SCALE_STEPS_PER_UNIT).round();
+    steps(crosshair) * steps(layer) / (SCALE_STEPS_PER_UNIT * SCALE_STEPS_PER_UNIT)
 }
 
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
@@ -145,6 +167,13 @@ fn one() -> f32 {
 
 fn yes() -> bool {
     true
+}
+
+/// A color mask that changes nothing.
+pub const WHITE: u32 = 0xffffff;
+
+fn white() -> u32 {
+    WHITE
 }
 
 /// When the window hides to the notification area. Hidden, the crosshair stays on; a click on

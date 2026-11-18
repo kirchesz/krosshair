@@ -1,9 +1,10 @@
-//! Adding or changing a layer: pick a crosshair from the gallery and place it on the screen.
+//! Adding or changing a layer: pick a crosshair from the gallery, place it on the screen, and
+//! give it a turn, a size and a tint of its own.
 
 use super::theme::*;
 use super::widgets::*;
-use super::{heading, Knob, Krosshair, Screen, SCREEN_TOP};
-use crate::model::{LayerRef, ANCHOR_NAMES};
+use super::{heading, Knob, Krosshair, Screen, FIELD_W, SCREEN_TOP};
+use crate::model::ANCHOR_NAMES;
 use gpui::{div, prelude::*, px, Context, FontWeight};
 
 /// Width of the side panel content: the panel is 300 wide with 24 padding.
@@ -13,9 +14,8 @@ const PREVIEW_H: f32 = 142.;
 impl Krosshair {
     fn save_layer(&mut self, cx: &mut Context<Self>) {
         let Some(file) = self.draft.file.clone() else { return };
-        let d = &self.draft;
-        let layer = LayerRef { file, anchor: d.anchor, ox: d.ox, oy: d.oy, on: d.on, rotation: d.rotation };
-        let index = d.index;
+        let layer = self.draft.layer(file);
+        let index = self.draft.index;
         let layers = &mut self.cfg.profile_mut().layers;
         match index {
             Some(i) if i < layers.len() => layers[i] = layer,
@@ -23,6 +23,49 @@ impl Krosshair {
         }
         self.screen = Screen::Layers;
         self.commit(cx);
+    }
+
+    /// The layer's own color mask: a swatch and its hex code, as wide as a tape field. A click
+    /// opens the system color picker; white changes nothing.
+    fn mask_field(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let mask = self.draft.mask;
+        let button = div()
+            .id("layer-mask")
+            .flex_1()
+            .h(px(40.))
+            .px(px(10.))
+            .rounded(px(6.))
+            .flex()
+            .items_center()
+            .gap(px(10.))
+            .cursor_pointer()
+            .font_family(mono())
+            .text_size(px(13.))
+            .font_weight(FontWeight::MEDIUM)
+            .fx(self, cx, |d, t| d.bg(fade(BG, t * 0.6)))
+            .tooltip(tip("Tints this layer · white changes nothing"))
+            .on_click(cx.listener(|this, _, _, cx| this.pick_layer_mask(cx)))
+            .child(div().size(px(22.)).flex_none().rounded_full().bg(c(mask)).border_1().border_color(alpha(TEXT, 0x33)))
+            .child(format!("#{mask:06X}"));
+        div().w(px(FIELD_W)).flex().p(px(2.)).rounded(px(8.)).bg(c(RAISED)).child(button)
+    }
+
+    fn pick_layer_mask(&mut self, cx: &mut Context<Self>) {
+        let initial = self.draft.mask;
+        cx.spawn(async move |this, cx| {
+            let picked = cx.background_spawn(async move { crate::dialogs::choose_color(initial) }).await;
+            if let Some(color) = picked {
+                let _ = this.update(cx, |this, cx| {
+                    // Still the same layer on screen: the picker doesn't stop navigation.
+                    if this.screen == Screen::LayerEdit {
+                        this.draft.mask = color;
+                        this.sync_overlay();
+                        cx.notify();
+                    }
+                });
+            }
+        })
+        .detach();
     }
 
     pub(super) fn layer_edit_screen(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -91,7 +134,7 @@ impl Krosshair {
                 .flex()
                 .items_center()
                 .justify_center()
-                .child(thumb_turned(self, item, d.rotation, side, 1., 1.))
+                .child(thumb_layer(self, item, (d.rotation, d.mask), side, 1., 1.))
         });
         let preview = div()
             .relative()
@@ -171,6 +214,8 @@ impl Krosshair {
                     .child(knob_row("offset x", Knob::OffsetX, cx))
                     .child(knob_row("offset y", Knob::OffsetY, cx))
                     .child(knob_row("rotation", Knob::LayerRotation, cx))
+                    .child(knob_row("scale", Knob::LayerScale, cx))
+                    .child(div().flex().items_center().justify_between().child(caption("color")).child(self.mask_field(cx)))
                     .child(
                         div()
                             .id("reset-position")

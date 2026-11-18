@@ -49,7 +49,7 @@ fn default_config() -> Config {
         current: 0,
         profiles: vec![Profile {
             name: "Default".into(),
-            layers: vec![LayerRef { file: "cross-gap.png".into(), anchor: 4, ox: 0, oy: 0, on: true, rotation: 0 }],
+            layers: vec![LayerRef::new("cross-gap.png".into(), 4)],
         }],
     }
 }
@@ -307,6 +307,17 @@ mod tests {
         cfg.tray = TrayMode::OnClose;
         cfg.tray_asked = true;
         assert_eq!(parse_config(&serde_json::to_string(&cfg).unwrap()), Some(cfg));
+    }
+
+    #[test]
+    fn layers_from_older_files_have_no_scale_or_tint_of_their_own() {
+        let mut json = serde_json::to_value(default_config()).unwrap();
+        let layer = &mut json["profiles"][0]["layers"][0];
+        layer.as_object_mut().unwrap().remove("scale");
+        layer.as_object_mut().unwrap().remove("mask");
+        let cfg = parse_config(&json.to_string()).unwrap();
+        let layer = &cfg.profiles[0].layers[0];
+        assert_eq!((layer.scale, layer.mask), (1.0, crate::model::WHITE));
     }
 
     #[test]

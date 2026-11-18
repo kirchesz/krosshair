@@ -35,7 +35,14 @@ widened with transparent pixels (here one on each side) to land on that grid.
 
 The crosshair scale is applied before all that, in the atlas: pictures are enlarged by repeating
 pixels on whole values or resampled by area averaging otherwise (after cropping, so a big
-picture doesn't grow in memory first), and offsets multiplied. The rotation is applied after the
+picture doesn't grow in memory first), and offsets multiplied. A layer's own scale (0.5x to 4x,
+set on the layer edit screen) multiplies its picture on top of that, but not its offset. The
+two are multiplied in whole steps of 0.05, so a product like 1.5x × 2x comes out as exactly 3x
+and stays sharp.
+
+Color masks multiply the colors: a layer's own mask tints its frames first, and the global mask
+then tints the whole atlas. A tinted copy of a picture is a picture of its own in the atlas, so
+two layers that show the same file in different colors take two places in it. The rotation is applied after the
 scale, also in the atlas. Letting RTSS stretch or turn the sprite instead (`<I>` takes an angle)
 would blur even whole steps and quarter turns.
 
